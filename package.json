@@ -21,7 +21,8 @@
     "start": "ts-node src/index.ts",
     "ws-manager": "ts-node src/wsConnectionManager.ts",
     "playground": "ts-node src/playground.ts",
-    "build": "tsc",
+    "build": "yarn clean && tsc",
+		"clean": "rm -rf lib",
     "prettify:write": "prettier --write './src/**/*.{ts,tsx}'"
   },
   "dependencies": {

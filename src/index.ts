@@ -104,7 +104,7 @@ export class GrpcEventSubscriber {
         const serializer = getSerializerFromEventType(eventType);
         if (serializer) {
           const serialized = serializer(event.data);
-          redis.rpush(event.name, JSON.stringify(serialized));
+          // redis.rpush(event.name, JSON.stringify(serialized));
           redis.publish(event.name, JSON.stringify(serialized));
         }
         runningEventIndex++;

@@ -11,6 +11,8 @@ RUN yarn
 WORKDIR /app/drift-common/common-ts
 RUN yarn
 RUN yarn build
+WORKDIR /app/drift-common/protocol
+RUN yarn
 WORKDIR /app/drift-common/protocol/sdk
 RUN yarn
 RUN yarn build

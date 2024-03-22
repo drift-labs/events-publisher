@@ -18,7 +18,7 @@ app.use(compression());
 app.set("trust proxy", 1);
 
 const wsConnectionsGauge = new Gauge({
-  name: "websocket_connections",
+  name: "websocket_connections_events",
   help: "Number of active WebSocket connections",
 });
 

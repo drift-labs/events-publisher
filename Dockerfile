@@ -6,6 +6,7 @@ RUN npm install -g typescript
 
 WORKDIR /app
 COPY . .
+RUN ls -la /app
 WORKDIR /app/drift-common/protocol/sdk
 RUN yarn
 RUN yarn build

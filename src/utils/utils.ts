@@ -1,4 +1,8 @@
 import { EventType } from "@drift-labs/sdk";
+import {
+  EventType as SweepstakesEventType,
+  Serializer as SweepstakesSerializer,
+} from "@drift-labs/competitions-sdk";
 import Redis from "ioredis";
 import { Serializer } from "@drift/common";
 
@@ -32,7 +36,7 @@ export const createRedisClient = (
 
 export const getEventTypeFromChannel = (
   channel: string,
-): EventType | undefined => {
+): EventType | SweepstakesEventType | undefined => {
   const lowercaseChannel = channel.toLowerCase();
   switch (lowercaseChannel) {
     case "deposit":
@@ -77,13 +81,25 @@ export const getEventTypeFromChannel = (
     case "curve":
     case "curverecord":
       return "CurveRecord";
+    // Sweepstakes
+    case "competitionroundsummaryrecord":
+    case "competitionroundsummary":
+      return "CompetitionRoundSummaryRecord";
+    case "competitionroundwinnerrecord":
+    case "competitionroundwinner":
+      return "CompetitionRoundWinnerRecord";
+    case "competitorsettledrecord":
+    case "competitorsettled":
+      return "CompetitorSettledRecord";
     case undefined:
     default:
       return undefined;
   }
 };
 
-export const getSerializerFromEventType = (eventType: EventType) => {
+export const getSerializerFromEventType = (
+  eventType: EventType | SweepstakesEventType,
+) => {
   switch (eventType) {
     case "DepositRecord":
       return Serializer.Serialize.Deposit;
@@ -109,6 +125,10 @@ export const getSerializerFromEventType = (eventType: EventType) => {
       return Serializer.Serialize.SwapRecord;
     case "InsuranceFundStakeRecord":
       return Serializer.Serialize.InsuranceFundStakeRecord;
+    case "CompetitionRoundSummaryRecord":
+      return SweepstakesSerializer.Serialize.SerializableSummaryEvent;
+    case "CompetitionRoundWinnerRecord":
+      return SweepstakesSerializer.Serialize.SerializableCompetitionRoundWinner;
     default:
       return undefined;
   }

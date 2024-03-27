@@ -78,7 +78,7 @@ export class GrpcEventSubscriber {
       blocks: {},
       blocksMeta: {},
       accountsDataSlice: [],
-      commitment: CommitmentLevel.FINALIZED,
+      commitment: CommitmentLevel.CONFIRMED,
       entry: {},
     };
 

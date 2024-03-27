@@ -4,7 +4,7 @@ import * as http from "http";
 import compression from "compression";
 import { WebSocket, WebSocketServer } from "ws";
 import { register, Gauge } from "prom-client";
-import { DriftEnv, PerpMarkets, SpotMarkets } from "@drift-labs/sdk";
+import { DriftEnv, EventType, PublicKey } from "@drift-labs/sdk";
 import { createRedisClient, getEventTypeFromChannel } from "./utils/utils";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 
@@ -39,13 +39,26 @@ const safeGetRawChannelFromMessage = (message: any): string => {
   return message?.channel;
 };
 
-const getRedisChannelFromMessage = (message: any): string => {
+const safeGetUserFromMesaage = (message: any): string => {
+  return message?.user;
+};
+
+const getRedisChannelFromMessage = (message: any): EventType => {
   const channel = message.channel;
   const eventType = getEventTypeFromChannel(channel);
   if (!eventType) {
     throw new Error("Bad channel specified");
   }
-  return eventType as string;
+  return eventType as string as EventType;
+};
+
+const validateUser = (message: any): void => {
+  const user = message.user;
+  try {
+    new PublicKey(user);
+  } catch (error) {
+    throw new Error("Bad user specified");
+  }
 };
 
 async function main() {
@@ -69,11 +82,34 @@ async function main() {
   );
   await redisClient.connect();
 
-  const channelSubscribers = new Map<string, Set<WebSocket>>();
-  const subscribedChannels = new Set<string>();
+  const subscribedRedisChannels = new Set<EventType>();
+  const channelSubscribers = new Map<EventType, Set<WebSocket>>();
+  const userChannelSubscribers = new Map<
+    string,
+    Map<EventType, Set<WebSocket>>
+  >();
+
+  const findUserSubscribersAndSend = (
+    user: string,
+    channel: EventType,
+    message: string,
+  ) => {
+    const subscribers = userChannelSubscribers
+      .get(user)
+      ?.get(channel as EventType);
+    if (subscribers) {
+      subscribers.forEach((ws) => {
+        if (
+          ws.readyState === WebSocket.OPEN &&
+          ws.bufferedAmount < MAX_BUFFERED_AMOUNT
+        )
+          ws.send(JSON.stringify({ channel: channel, data: message }));
+      });
+    }
+  };
 
   redisClient.on("connect", () => {
-    subscribedChannels.forEach(async (channel) => {
+    subscribedRedisChannels.forEach(async (channel) => {
       try {
         await redisClient.subscribe(channel);
       } catch (error) {
@@ -82,7 +118,7 @@ async function main() {
     });
   });
 
-  redisClient.on("message", (subscribedChannel, message) => {
+  redisClient.on("message", (subscribedChannel: EventType, message) => {
     const subscribers = channelSubscribers.get(subscribedChannel);
     if (subscribers) {
       subscribers.forEach((ws) => {
@@ -94,6 +130,22 @@ async function main() {
             JSON.stringify({ channel: subscribedChannel, data: message }),
           );
       });
+    }
+    const messageObject = JSON.parse(message);
+    let user = messageObject.user;
+    if (subscribedChannel === "OrderActionRecord") {
+      findUserSubscribersAndSend(
+        messageObject.taker,
+        "OrderActionRecord",
+        message,
+      );
+      findUserSubscribersAndSend(
+        messageObject.maker,
+        "OrderActionRecord",
+        message,
+      );
+    } else {
+      findUserSubscribersAndSend(user, subscribedChannel as EventType, message);
     }
   });
 
@@ -117,10 +169,10 @@ async function main() {
 
       switch (messageType) {
         case "subscribe": {
-          let redisChannel: string;
+          // Get the redis channel -- this is required
+          let redisChannel: EventType;
           try {
             redisChannel = getRedisChannelFromMessage(parsedMessage);
-            console.log(redisChannel);
           } catch (error) {
             const requestChannel = safeGetRawChannelFromMessage(parsedMessage);
             if (requestChannel) {
@@ -145,12 +197,30 @@ async function main() {
             return;
           }
 
-          if (!subscribedChannels.has(redisChannel)) {
+          // Get the user -- this is optional
+          let user = safeGetUserFromMesaage(parsedMessage);
+          if (user) {
+            try {
+              validateUser(parsedMessage);
+            } catch (error) {
+              ws.send(
+                JSON.stringify({
+                  error:
+                    "Error subscribing to user with data: " +
+                    JSON.stringify(parsedMessage),
+                }),
+              );
+              return;
+            }
+          }
+
+          // Subscribe to redis channel if no users subscribed to this event type yet
+          if (!subscribedRedisChannels.has(redisChannel)) {
             console.log("Trying to subscribe to channel", redisChannel);
             redisClient
               .subscribe(redisChannel)
               .then(() => {
-                subscribedChannels.add(redisChannel);
+                subscribedRedisChannels.add(redisChannel);
               })
               .catch(() => {
                 ws.send(
@@ -162,21 +232,38 @@ async function main() {
               });
           }
 
-          if (!channelSubscribers.get(redisChannel)) {
-            const subscribers = new Set<WebSocket>();
-            channelSubscribers.set(redisChannel, subscribers);
+          // Put subscription in the channel that subs to all events
+          if (!user) {
+            if (!channelSubscribers.get(redisChannel)) {
+              const subscribers = new Set<WebSocket>();
+              channelSubscribers.set(redisChannel, subscribers);
+            }
+            channelSubscribers.get(redisChannel)?.add(ws);
+          } else {
+            if (!userChannelSubscribers.get(user)) {
+              const subscribers = new Map<EventType, Set<WebSocket>>();
+              userChannelSubscribers.set(user, subscribers);
+            }
+            const userSubscribers = userChannelSubscribers.get(user);
+            if (!userSubscribers.get(redisChannel as EventType)) {
+              const subscribers = new Set<WebSocket>();
+              userSubscribers.set(redisChannel as EventType, subscribers);
+            }
+            userChannelSubscribers
+              .get(user)
+              .get(redisChannel as EventType)
+              ?.add(ws);
           }
-          channelSubscribers.get(redisChannel)?.add(ws);
 
           ws.send(
             JSON.stringify({
-              message: `Subscribe received for channel: ${parsedMessage.channel}, market: ${parsedMessage.market}, marketType: ${parsedMessage.marketType}`,
+              message: `Subscribe received for channel: ${parsedMessage.channel}, user: ${parsedMessage.user}`,
             }),
           );
           break;
         }
         case "unsubscribe": {
-          let redisChannel: string;
+          let redisChannel: EventType;
           try {
             redisChannel = getRedisChannelFromMessage(parsedMessage);
           } catch (error: any) {
@@ -203,9 +290,43 @@ async function main() {
             }
             return;
           }
-          const subscribers = channelSubscribers.get(redisChannel);
-          if (subscribers) {
+
+          // Get the user -- this is optional
+          let user = safeGetUserFromMesaage(parsedMessage);
+          if (user) {
+            try {
+              validateUser(parsedMessage);
+            } catch (error) {
+              ws.send(
+                JSON.stringify({
+                  error:
+                    "Error subscribing to user with data: " +
+                    JSON.stringify(parsedMessage),
+                }),
+              );
+              return;
+            }
+          }
+
+          if (!user) {
+            if (!channelSubscribers.get(redisChannel)) {
+              const subscribers = new Set<WebSocket>();
+              channelSubscribers.set(redisChannel, subscribers);
+            }
             channelSubscribers.get(redisChannel)?.delete(ws);
+          } else {
+            userChannelSubscribers
+              .get(user)
+              ?.get(redisChannel as EventType)
+              ?.delete(ws);
+            if (
+              userChannelSubscribers.get(user)?.get(redisChannel as EventType)
+                ?.size === 0
+            ) {
+              userChannelSubscribers
+                .get(user)
+                ?.delete(redisChannel as EventType);
+            }
           }
           break;
         }
@@ -244,7 +365,17 @@ async function main() {
         if (subscribers.delete(ws) && subscribers.size === 0) {
           redisClient.unsubscribe(channel);
           channelSubscribers.delete(channel);
-          subscribedChannels.delete(channel);
+          subscribedRedisChannels.delete(channel);
+        }
+      });
+      userChannelSubscribers.forEach((subscribers, user) => {
+        subscribers.forEach((subscribers, channel) => {
+          if (subscribers.delete(ws) && subscribers.size === 0) {
+            userChannelSubscribers.get(user)?.delete(channel);
+          }
+        });
+        if (subscribers.size === 0) {
+          userChannelSubscribers.delete(user);
         }
       });
       wsConnectionsGauge.dec();

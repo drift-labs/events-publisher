@@ -923,7 +923,7 @@
     uuid "^8.3.2"
 
 "@drift-labs/sdk@file:drift-common/protocol/sdk":
-  version "2.74.0-beta.8"
+  version "2.75.0-beta.1"
   dependencies:
     "@coral-xyz/anchor" "0.28.1-beta.2"
     "@ellipsis-labs/phoenix-sdk" "^1.4.2"
@@ -937,7 +937,7 @@
 "@drift/common@file:./drift-common/common-ts":
   version "1.0.0"
   dependencies:
-    "@drift-labs/sdk" "file:../../Library/Caches/Yarn/v6/npm-@drift-common-1.0.0-fc1a7621-2a17-4792-adf0-e8fe89ad3060-1711392925174/node_modules/@drift/protocol/sdk"
+    "@drift-labs/sdk" "file:../../Library/Caches/Yarn/v6/npm-@drift-common-1.0.0-faa1ed26-515b-4156-8e45-9b3a4788129e-1711646377372/node_modules/@drift/protocol/sdk"
     "@jest/globals" "^29.3.1"
     "@slack/web-api" "^6.4.0"
     "@solana/spl-token" "^0.3.8"

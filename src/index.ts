@@ -28,6 +28,7 @@ if (!endpoint) {
 }
 const token = process.env.TOKEN;
 const RUNNING_LOCAL = process.env.RUNNING_LOCAL === "true";
+const WRITING = process.env.WRITING === "true";
 
 export class GrpcEventSubscriber {
   config: grpcEventsSubscriberConfig;
@@ -104,7 +105,9 @@ export class GrpcEventSubscriber {
         const serializer = getSerializerFromEventType(eventType);
         if (serializer) {
           const serialized = serializer(event.data);
-          // redis.rpush(event.name, JSON.stringify(serialized));
+          if (WRITING) {
+            redis.rpush(event.name, JSON.stringify(serialized));
+          }
           redis.publish(event.name, JSON.stringify(serialized));
         }
         runningEventIndex++;

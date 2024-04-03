@@ -129,6 +129,10 @@ export const getSerializerFromEventType = (
       return SweepstakesSerializer.Serialize.SerializableSummaryEvent;
     case "CompetitionRoundWinnerRecord":
       return SweepstakesSerializer.Serialize.SerializableCompetitionRoundWinner;
+    case "SpotInterestRecord":
+      return Serializer.Serialize.SpotInterestRecord;
+    case "CurveRecord":
+      return Serializer.Serialize.CurveRecord;
     default:
       return undefined;
   }

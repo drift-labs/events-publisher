@@ -15,7 +15,8 @@
     "eslint-plugin-n": "^15.0.0 || ^16.0.0 ",
     "eslint-plugin-promise": "^6.0.0",
     "prettier": "^3.2.5",
-    "typescript": "*"
+    "typescript": "*",
+    "vitest": "^1.6.0"
   },
   "scripts": {
     "start": "ts-node src/index.ts",
@@ -23,6 +24,7 @@
     "playground": "ts-node src/playground.ts",
     "build": "yarn clean && tsc",
     "clean": "rm -rf lib",
+    "test": "vitest",
     "prettify:write": "prettier --write './src/**/*.{ts,tsx}'"
   },
   "dependencies": {

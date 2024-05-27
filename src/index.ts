@@ -15,6 +15,7 @@ import { ClientDuplexStream } from '@grpc/grpc-js';
 import { Connection, Keypair } from '@solana/web3.js';
 import { bs58 } from '@coral-xyz/anchor/dist/cjs/utils/bytes';
 import { getSerializerFromEventType } from './utils/utils';
+import { ConfigurationService } from './utils/configuration';
 
 require('dotenv').config();
 
@@ -159,7 +160,38 @@ async function main() {
 		token: token!,
 	});
 
-	await eventSubscriber.subscribe();
+	const { setupClient, shutdown, awaitPromotion } =
+		ConfigurationService(redisClient);
+
+	try {
+		await awaitPromotion({
+			callback: async () => await eventSubscriber.subscribe(),
+		});
+		await setupClient();
+	} catch (error) {
+		console.error(error);
+		await shutdown();
+	}
+
+	// Handle removing of the client from redis in case of any uncaught errors.
+	process.on('SIGINT', async () => {
+		await shutdown();
+		process.exit();
+	});
+
+	process.on('uncaughtException', async (e: Error) => {
+		await shutdown();
+		console.log(`Shutting down container because uncaught error: ${e.message}`);
+		process.exit();
+	});
+
+	process.on('unhandledRejection', async (e: Error) => {
+		await shutdown();
+		console.log(
+			`Shutting down container because unhandled rejection: ${e.message}`
+		);
+		process.exit();
+	});
 }
 
 main();

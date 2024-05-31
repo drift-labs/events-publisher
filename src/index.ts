@@ -10,7 +10,7 @@ import {
 	Wallet,
 	parseLogs,
 } from '@drift-labs/sdk';
-import { RedisClient } from '@drift/common';
+import { RedisClient, logger } from '@drift/common';
 import { ClientDuplexStream } from '@grpc/grpc-js';
 import { Connection, Keypair } from '@solana/web3.js';
 import { bs58 } from '@coral-xyz/anchor/dist/cjs/utils/bytes';
@@ -39,6 +39,7 @@ export class GrpcEventSubscriber {
 	redisClient: RedisClient;
 	stream?: ClientDuplexStream<SubscribeRequest, SubscribeUpdate>;
 	mostRecentSlot: number = -1;
+	currentlyWriting: boolean;
 
 	constructor(
 		driftClient: DriftClient,
@@ -48,6 +49,7 @@ export class GrpcEventSubscriber {
 		this.driftClient = driftClient;
 		this.redisClient = redisClient;
 		this.config = config;
+		this.currentlyWriting = true;
 	}
 
 	public async subscribe(): Promise<void> {
@@ -101,7 +103,16 @@ export class GrpcEventSubscriber {
 				}
 				runningEventIndex++;
 			}
+
+			this.currentlyWriting = true;
 		});
+
+		setInterval(() => {
+			if (!this.currentlyWriting) {
+				throw new Error('Publisher has not written an event in 5000ms');
+			}
+			this.currentlyWriting = false;
+		}, 5000);
 
 		return new Promise<void>((resolve, reject) => {
 			this.stream!.write(request, (err: Error) => {
@@ -112,7 +123,7 @@ export class GrpcEventSubscriber {
 				}
 			});
 		}).catch((reason) => {
-			console.error(reason);
+			logger.error(reason);
 			throw reason;
 		});
 	}
@@ -138,7 +149,7 @@ export class GrpcEventSubscriber {
 				}
 			);
 		}).catch((reason) => {
-			console.error(reason);
+			logger.error(reason);
 			throw reason;
 		});
 	}
@@ -160,8 +171,15 @@ async function main() {
 		token: token!,
 	});
 
-	const { setupClient, shutdown, awaitPromotion } =
-		ConfigurationService(redisClient);
+	const { setupClient, shutdown, awaitPromotion } = ConfigurationService(
+		redisClient,
+		logger
+	);
+
+	const handleShutdown = async (message: string) => {
+		logger.alert(message);
+		await shutdown();
+	};
 
 	try {
 		await awaitPromotion({
@@ -169,28 +187,23 @@ async function main() {
 		});
 		await setupClient();
 	} catch (error) {
-		console.error(error);
-		await shutdown();
+		await handleShutdown(`Error in events publisher: ${error.message}`);
 	}
 
-	// Handle removing of the client from redis in case of any uncaught errors.
-	process.on('SIGINT', async () => {
-		await shutdown();
-		process.exit();
+	process.on('SIGINT', () => {
+		return handleShutdown(`Events Publisher interrupted`);
 	});
 
-	process.on('uncaughtException', async (e: Error) => {
-		await shutdown();
-		console.log(`Shutting down container because uncaught error: ${e.message}`);
-		process.exit();
-	});
-
-	process.on('unhandledRejection', async (e: Error) => {
-		await shutdown();
-		console.log(
-			`Shutting down container because unhandled rejection: ${e.message}`
+	process.on('uncaughtException', (error: Error) => {
+		return handleShutdown(
+			`Shutting down container because uncaught error: ${error.message}`
 		);
-		process.exit();
+	});
+
+	process.on('unhandledRejection', (error: Error) => {
+		return handleShutdown(
+			`Shutting down container because unhandled rejection: ${error.message}`
+		);
 	});
 }
 

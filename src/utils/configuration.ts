@@ -1,4 +1,4 @@
-import { RedisClient } from '@drift/common';
+import { RedisClient, Logger } from '@drift/common';
 import { v4 as uuidv4 } from 'uuid';
 
 const REDIS_CONFIG_KEY = 'events-publisher-config';
@@ -12,30 +12,31 @@ interface Client {
 	isFailover?: boolean;
 }
 
-export const ConfigurationService = (redisClient: RedisClient) => {
-	console.log(`Starting up client: ${CLIENT}`);
+export const ConfigurationService = (redisClient: RedisClient, logger: Logger) => {
+	logger.info(`Starting up client: ${CLIENT}`);
 
 	const setupClient = async () => {
 		await redisClient.rPush(REDIS_CONFIG_KEY, JSON.stringify({ id: CLIENT }));
-		await checkIfShouldPromote();
-		console.log('returning');
+		await checkIfClientsConnected();
 	};
 
 	const shutdown = async () => {
-		const clients = await getClients();
-		const client = clients?.find((client) => client.id === CLIENT);
+		logger.info(`Shutting down client: ${CLIENT}`);
+		try {
+			const clients = await getClients();
+			const client = clients?.find((client) => client.id === CLIENT);
 
-		console.log(`Shutting down client: ${CLIENT}`);
-
-		if (client && clients.length > 1) {
-			await redisClient.lRem(REDIS_CONFIG_KEY, 1, JSON.stringify(client));
-			if (client.isWriting) {
-				await promote();
+			if (client && clients.length > 1) {
+				await redisClient.lRem(REDIS_CONFIG_KEY, 1, JSON.stringify(client));
+				if (client.isWriting) {
+					await promote();
+				}
+			} else if (client && clients.length === 1) {
+				await redisClient.delete(REDIS_CONFIG_KEY);
+				throw new Error(`No event publishing clients are running`);
 			}
-		} else if (client && clients.length === 1) {
-			console.log(`No clients are currently running`);
-			// TODO this should throw an alert as it should never happen
-			await redisClient.delete(REDIS_CONFIG_KEY);
+		} catch (error) {
+			logger.alert(`Failed to shutdown gracefully: ${error.message}`);
 		}
 	};
 
@@ -46,23 +47,78 @@ export const ConfigurationService = (redisClient: RedisClient) => {
 			if (channel === REDIS_CLIENT_CHANNEL) {
 				const { isWriting = false, isFailover = false } = JSON.parse(message);
 				if (isWriting) {
-					console.log(`Starting to write on client: ${CLIENT}`);
+					logger.info(`Starting to write on client: ${CLIENT}`);
 					callback();
 				}
 				if (isFailover) throw new Error(`Failing over client: ${CLIENT}`);
 			}
 		});
+
+		redisClient.forceGetClient().on('error', (e) => {
+			throw new Error(`Redis Error: ${e.message}`);
+		});
+
+		redisClient.forceGetClient().on('end', () => {
+			throw new Error('Redis connection was closed');
+		});
 	};
 
 	const checkIfShouldPromote = async () => {
-		console.log('in function')
-		return setTimeout(async () => {
-			console.log('in timeout')
-			const clients = await getClients();
-			const clientIsWriting = clients?.find((client) => client.isWriting);
-			if (!clientIsWriting) {
-				await promote();
+		const clients = await getClients();
+		const clientIsWriting = clients?.find((client) => client.isWriting);
+		if (!clientIsWriting) {
+			await promote();
+		}
+	};
+
+	const checkIfClientsConnected = async () => {
+		const connectedClients = [CLIENT];
+
+		await redisClient.subscribe(REDIS_CHANNEL_PREFIX);
+
+		// On startup a new client will ping existing clients to determine if the
+		// connections are still connected
+		redisClient.forceGetClient().on('message', async (channel, message) => {
+			if (channel === REDIS_CHANNEL_PREFIX) {
+				const { id, ping = false, pong = false } = JSON.parse(message);
+
+				if (id === CLIENT && ping) {
+					await redisClient.publish(`${REDIS_CHANNEL_PREFIX}`, {
+						id,
+						pong: true,
+					});
+				}
+
+				if (id !== CLIENT && pong) {
+					connectedClients.push(id);
+				}
 			}
+		});
+
+		const clients = await getClients();
+
+		clients
+			.filter((client) => client.id !== CLIENT)
+			.map(async (client) => {
+				await redisClient.publish(`${REDIS_CHANNEL_PREFIX}`, {
+					id: client.id,
+					ping: true,
+				});
+			});
+
+		// Clean up any stale connections
+		setTimeout(async () => {
+			logger.info(`Connected clients: ${connectedClients}`);
+
+			const disconnectedClients = clients.filter(
+				(client) => !connectedClients.includes(client.id)
+			);
+			logger.info(`Disconnected clients: ${disconnectedClients}`);
+			disconnectedClients.map(async (client) => {
+				await redisClient.lRem(REDIS_CONFIG_KEY, 1, JSON.stringify(client));
+			});
+
+			await checkIfShouldPromote();
 		}, 3000);
 	};
 
@@ -71,13 +127,10 @@ export const ConfigurationService = (redisClient: RedisClient) => {
 		const firstClient = clients?.[0];
 
 		if (!firstClient) {
-			console.log('Failed promoting a client: Unable to find client');
-			return;
+			throw new Error('Failed promoting a client: Unable to find client');
 		}
 
 		const payload = { ...firstClient, isWriting: true };
-
-		console.log(`Promoting client: ${firstClient.id}`);
 
 		await redisClient
 			.forceGetClient()
@@ -87,6 +140,8 @@ export const ConfigurationService = (redisClient: RedisClient) => {
 			`${REDIS_CHANNEL_PREFIX}-${firstClient.id}`,
 			payload
 		);
+
+		logger.alert(`Promoting new publishing client: ${firstClient.id}`);
 	};
 
 	const getClients = async (): Promise<Client[]> => {
@@ -100,5 +155,6 @@ export const ConfigurationService = (redisClient: RedisClient) => {
 		shutdown,
 		awaitPromotion,
 		checkIfShouldPromote,
+		checkIfClientsConnected,
 	};
 };

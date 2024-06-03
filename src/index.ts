@@ -1,3 +1,5 @@
+require('dotenv').config();
+
 import Client, {
 	CommitmentLevel,
 	SubscribeRequest,
@@ -10,14 +12,13 @@ import {
 	Wallet,
 	parseLogs,
 } from '@drift-labs/sdk';
-import { RedisClient, logger } from '@drift/common';
 import { ClientDuplexStream } from '@grpc/grpc-js';
 import { Connection, Keypair } from '@solana/web3.js';
 import { bs58 } from '@coral-xyz/anchor/dist/cjs/utils/bytes';
 import { getSerializerFromEventType } from './utils/utils';
 import { ConfigurationService } from './utils/configuration';
 
-require('dotenv').config();
+import { RedisClient, logger } from '@drift/common';
 
 type grpcEventsSubscriberConfig = {
 	programId: string;
@@ -123,7 +124,7 @@ export class GrpcEventSubscriber {
 				}
 			});
 		}).catch((reason) => {
-			logger.error(reason);
+			logger.alert(reason);
 			throw reason;
 		});
 	}
@@ -155,7 +156,7 @@ export class GrpcEventSubscriber {
 	}
 }
 
-async function main() {
+export async function main() {
 	const redisClient = new RedisClient({});
 	await redisClient.connect();
 
@@ -177,8 +178,10 @@ async function main() {
 	);
 
 	const handleShutdown = async (message: string) => {
+		console.log(message)
 		logger.alert(message);
 		await shutdown();
+		process.exit();
 	};
 
 	try {
@@ -187,6 +190,7 @@ async function main() {
 		});
 		await setupClient();
 	} catch (error) {
+		console.log(error)
 		await handleShutdown(`Error in events publisher: ${error.message}`);
 	}
 
@@ -207,4 +211,6 @@ async function main() {
 	});
 }
 
-main();
+if (require.main === module) {
+	main();
+}

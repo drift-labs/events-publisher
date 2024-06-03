@@ -1,7 +1,9 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig } from 'vitest/config';
+import commonjs from '@rollup/plugin-commonjs';
 
 export default defineConfig({
-  test: {
-    include: ['./src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}']
-  },
-})
+	test: {
+		include: ['./src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+	},
+	plugins: [commonjs()],
+});

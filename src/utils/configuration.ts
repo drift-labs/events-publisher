@@ -12,7 +12,10 @@ interface Client {
 	isFailover?: boolean;
 }
 
-export const ConfigurationService = (redisClient: RedisClient, logger: Logger) => {
+export const ConfigurationService = (
+	redisClient: RedisClient,
+	logger: Logger
+) => {
 	logger.info(`Starting up client: ${CLIENT}`);
 
 	const setupClient = async () => {
@@ -98,7 +101,7 @@ export const ConfigurationService = (redisClient: RedisClient, logger: Logger) =
 		const clients = await getClients();
 
 		clients
-			.filter((client) => client.id !== CLIENT)
+			?.filter((client) => client.id !== CLIENT)
 			.map(async (client) => {
 				await redisClient.publish(`${REDIS_CHANNEL_PREFIX}`, {
 					id: client.id,
@@ -109,7 +112,6 @@ export const ConfigurationService = (redisClient: RedisClient, logger: Logger) =
 		// Clean up any stale connections
 		setTimeout(async () => {
 			logger.info(`Connected clients: ${connectedClients}`);
-
 			const disconnectedClients = clients.filter(
 				(client) => !connectedClients.includes(client.id)
 			);
@@ -151,9 +153,11 @@ export const ConfigurationService = (redisClient: RedisClient, logger: Logger) =
 	};
 
 	return {
+		getClients,
 		setupClient,
 		shutdown,
 		awaitPromotion,
+		promote,
 		checkIfShouldPromote,
 		checkIfClientsConnected,
 	};

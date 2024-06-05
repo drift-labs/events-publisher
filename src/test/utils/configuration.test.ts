@@ -7,7 +7,7 @@ import {
 	afterEach,
 	Mocked,
 } from 'vitest';
-import { ConfigurationService } from '../../utils/configuration';
+import { ConfigurationService } from '../../services/configuration';
 import { RedisClient, Logger } from '@drift/common';
 
 vi.mock('@drift/common');
@@ -20,17 +20,20 @@ describe('ConfigurationService', () => {
 	let redisClient: Mocked<RedisClient>;
 	let logger: Mocked<Logger>;
 	let service: ReturnType<typeof ConfigurationService>;
+	const timestamp = 1670994900000;
 
 	beforeEach(() => {
+		vi.spyOn(Date, 'now').mockReturnValue(1670994900000);
+
 		redisClient = {
 			rPush: vi.fn(),
 			lRem: vi.fn(),
 			delete: vi.fn(),
 			subscribe: vi.fn(),
 			publish: vi.fn(),
+			lSet: vi.fn(),
 			forceGetClient: vi.fn().mockReturnValue({
 				on: vi.fn(),
-				lset: vi.fn(),
 			}),
 			lRange: vi.fn(),
 		} as any;
@@ -43,30 +46,32 @@ describe('ConfigurationService', () => {
 
 	afterEach(() => {
 		vi.clearAllMocks();
+		vi.useRealTimers();
 	});
 
 	describe('setupClient', () => {
 		it('should setup the client', async () => {
 			redisClient.rPush.mockResolvedValue(null);
+			vi.useFakeTimers();
 			await service.setupClient();
 			expect(redisClient.rPush).toHaveBeenCalledWith(
 				'events-publisher-config',
-				'{\"id\":\"mock-uuid\"}'
+				'{"id":"mock-uuid","freshness":1670994900000}'
 			);
-			expect(redisClient.subscribe).toHaveBeenCalledWith(expect.any(String));
 		});
 	});
 
 	describe('shutdown', () => {
 		it('should shutdown the client and promote if necessary', async () => {
-			redisClient.lRange.mockResolvedValue(
-				[JSON.stringify({ id: 'mock-uuid', isWriting: true }), JSON.stringify({ id: 'mock-uuid-2' })],
-			);
+			redisClient.lRange.mockResolvedValue([
+				JSON.stringify({ id: 'mock-uuid', isWriting: true }),
+				JSON.stringify({ id: 'mock-uuid-2' }),
+			]);
 			await service.shutdown();
 			expect(redisClient.lRem).toHaveBeenCalledWith(
 				'events-publisher-config',
 				1,
-				"{\"id\":\"mock-uuid\",\"isWriting\":true}"
+				'{"id":"mock-uuid","isWriting":true}'
 			);
 		});
 
@@ -76,7 +81,7 @@ describe('ConfigurationService', () => {
 			]);
 			await service.shutdown();
 			expect(redisClient.delete).toHaveBeenCalledWith(
-				'events-publisher-config',
+				'events-publisher-config'
 			);
 		});
 
@@ -92,44 +97,97 @@ describe('ConfigurationService', () => {
 
 	describe('awaitPromotion', () => {
 		it('should handle promotion', async () => {
+			redisClient.lRange.mockResolvedValue([
+				JSON.stringify({ id: 'mock-uuid', isWriting: true }),
+			]);
+
 			const callback = vi.fn();
+			const clearSpy = vi.spyOn(global, 'clearInterval');
+
+			vi.useRealTimers();
 			await service.awaitPromotion({ callback });
-			const messageHandler = redisClient
-				.forceGetClient()
-				// @ts-ignore
-				.on.mock.calls.find((call) => call[0] === 'message')[1];
-			messageHandler('events-client-mock-uuid', JSON.stringify({ isWriting: true }));
+			// Mock waiting for the timer
+			await new Promise((resolve) => setTimeout(resolve, 500));
 			expect(callback).toHaveBeenCalled();
+			expect(clearSpy).toHaveBeenCalled();
 		});
 	});
 
 	describe('checkIfShouldPromote', () => {
 		it('should not promote if client is writing', async () => {
-			redisClient.lRange.mockResolvedValue([JSON.stringify({ id: 'mock-uuid-2', isWriting: true }), JSON.stringify({ id: 'mock-uuid-3' })]);
+			redisClient.lRange.mockResolvedValue([
+				JSON.stringify({ id: 'mock-uuid-2', isWriting: true }),
+				JSON.stringify({ id: 'mock-uuid-3' }),
+			]);
 			await service.checkIfShouldPromote();
-			expect(redisClient.forceGetClient().lset).not.toHaveBeenCalled();
+			expect(redisClient.lSet).not.toHaveBeenCalled();
 		});
 
 		it('should promote if no client is writing', async () => {
-			redisClient.lRange.mockResolvedValue([JSON.stringify({ id: 'mock-uuid-2' }), JSON.stringify({ id: 'mock-uuid-3' })]);
+			redisClient.lRange.mockResolvedValue([
+				JSON.stringify({ id: 'mock-uuid-2' }),
+				JSON.stringify({ id: 'mock-uuid-3' }),
+			]);
 			await service.checkIfShouldPromote();
-			expect(redisClient.forceGetClient().lset).toHaveBeenCalled();
-			expect(redisClient.publish).toHaveBeenCalledWith('events-client-mock-uuid-2', { id: 'mock-uuid-2', isWriting: true});
+			expect(redisClient.lSet).toHaveBeenCalled();
 		});
 	});
 
-	describe('checkIfClientsConnected', () => {
+	describe('checkConnectedClients', () => {
 		it('should check clients and clean up stale connections', async () => {
 			redisClient.lRange.mockResolvedValue([
-				JSON.stringify({ id: 'mock-uuid-2-inactive' }),
+				JSON.stringify({
+					id: 'mock-uuid-2-inactive',
+					freshness: 1670994898499,
+				}),
+				JSON.stringify({
+					id: 'mock-uuid-2-inactive',
+					freshness: 1670994898500,
+				}),
 				JSON.stringify({ id: 'mock-uuid-3-inactive' }),
 			]);
 			vi.useFakeTimers();
-			await service.checkIfClientsConnected();
+			await service.checkConnectedClients();
 			vi.runAllTimers();
-			expect(redisClient.publish).toHaveBeenCalledTimes(2)
-			expect(redisClient.publish).toHaveBeenCalledWith('events-client', { id: 'mock-uuid-3-inactive', ping: true});
 			expect(redisClient.lRem).toHaveBeenCalledTimes(2);
+		});
+	});
+
+	describe('checkIfMultipleWriteClients', () => {
+		it('should check to see if there are two writers', async () => {
+			redisClient.lRange.mockResolvedValue([
+				JSON.stringify({ id: 'mock-uuid', isWriting: true }),
+				JSON.stringify({ id: 'mock-uuid-3-inactive', isWriting: true }),
+			]);
+
+			await expect(service.checkIfMultipleWriteClients()).rejects.toThrow(
+				'Failing over client due to duplicate writers'
+			);
+		});
+
+		it('should only throw an error on the client', async () => {
+			redisClient.lRange.mockResolvedValue([
+				JSON.stringify({ id: 'mock-uuid-2-inactive', isWriting: true }),
+				JSON.stringify({ id: 'mock-uuid-3-inactive', isWriting: true }),
+			]);
+			await expect(
+				service.checkIfMultipleWriteClients()
+			).resolves.toBeUndefined();
+		});
+	});
+
+	describe('updateFreshness', async () => {
+		it('should update the freshness value of the client', async () => {
+			redisClient.lRange.mockResolvedValue([
+				JSON.stringify({ id: 'mock-uuid-2' }),
+				JSON.stringify({ id: 'mock-uuid' }),
+			]);
+			await service.updateFreshness();
+			expect(redisClient.lSet).toHaveBeenCalledWith(
+				'events-publisher-config',
+				1,
+				'{"id":"mock-uuid","freshness":1670994900000}'
+			);
 		});
 	});
 
@@ -139,17 +197,17 @@ describe('ConfigurationService', () => {
 				JSON.stringify({ id: 'mock-client-id' }),
 			]);
 			await service.promote();
-			expect(redisClient.forceGetClient().lset).toHaveBeenCalled();
-			expect(redisClient.publish).toHaveBeenCalledWith('events-client-mock-client-id', {
-				id: 'mock-client-id',
-				isWriting: true
-			});
+			expect(redisClient.lSet).toHaveBeenCalledWith(
+				'events-publisher-config',
+				0,
+				'{"id":"mock-client-id","isWriting":true}'
+			);
 		});
 
 		it('should throw an error if no clients are found', async () => {
 			redisClient.lRange.mockResolvedValue([]);
 			await expect(service.promote()).rejects.toThrow(
-				'Failed promoting a client: Unable to find client'
+				'Failed promoting a client: No client exists'
 			);
 		});
 	});
@@ -157,10 +215,22 @@ describe('ConfigurationService', () => {
 	describe('getClients', () => {
 		it('should get clients from Redis', async () => {
 			redisClient.lRange.mockResolvedValue([
-				JSON.stringify({ id: 'client1' }),
+				JSON.stringify({ id: 'mock-uuid' }),
+				JSON.stringify({ id: 'mock-uuid-2' }),
 			]);
 			const clients = await service.getClients();
-			expect(clients).toEqual([{ id: 'client1' }]);
+			expect(clients).toEqual([{ id: 'mock-uuid' }, { id: 'mock-uuid-2' }]);
+		});
+	});
+
+	describe('getClient', () => {
+		it('should get client from Redis', async () => {
+			redisClient.lRange.mockResolvedValue([
+				JSON.stringify({ id: 'mock-uuid' }),
+				JSON.stringify({ id: 'mock-uuid-1' }),
+			]);
+			const clients = await service.getClient();
+			expect(clients).toEqual({ id: 'mock-uuid' });
 		});
 	});
 });

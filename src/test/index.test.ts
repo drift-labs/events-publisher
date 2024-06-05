@@ -33,8 +33,8 @@ const mockSetup = vi.fn();
 const mockShutdown = vi.fn();
 let mockAwaitPromotion = vi.fn();
 
-vi.mock('../utils/configuration', async (importOriginal) => {
-    const actualModule = await importOriginal<typeof import('../utils/configuration')>();
+vi.mock('../services/configuration', async (importOriginal) => {
+    const actualModule = await importOriginal<typeof import('../services/configuration')>();
 	return {
 		ConfigurationService: vi.fn(() => ({
             ...actualModule.ConfigurationService,

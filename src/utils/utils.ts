@@ -108,3 +108,14 @@ export const getSerializerFromEventType = (
 			return undefined;
 	}
 };
+
+export const getTtlForRecord = (eventType: EventType, event: any) => {
+	const defaultOffset = 1000 * 60;
+	switch (eventType) {
+		case 'OrderActionRecord': {
+			return 1000 * 30;
+		}
+		default:
+			return defaultOffset;
+	}
+};

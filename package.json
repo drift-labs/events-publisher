@@ -25,7 +25,8 @@
     "playground": "ts-node src/playground.ts",
     "build": "yarn clean && tsc",
     "clean": "rm -rf lib",
-    "test": "vitest",
+    "test": "vitest run",
+    "test:dev": "vitest",
     "prettify:write": "prettier --write './src/**/*.{ts,tsx}'"
   },
   "dependencies": {

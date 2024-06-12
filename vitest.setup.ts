@@ -1,0 +1,1 @@
+process.env.GRPC_ENDPOINT = 'https://test-endpoint.com'

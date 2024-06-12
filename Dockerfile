@@ -13,7 +13,8 @@ WORKDIR /app/drift-common/common-ts
 RUN yarn
 RUN yarn build
 WORKDIR /app
-RUN yarn
+RUN yarn --production=false
+RUN yarn test
 RUN yarn build
 
 EXPOSE 9464

@@ -51,18 +51,13 @@ export const ConfigurationService = (
 		}
 	};
 
-	const awaitPromotion = async ({ callback }: { callback: Function}) => {
+	const awaitPromotion = async ({ callback }: { callback: Function }) => {
 		const timer = setInterval(async () => {
-			const { isWriting = false, isFailover = false } =
-				(await getClient()) ?? {};
+			const { isWriting = false } = (await getClient()) ?? {};
 			if (isWriting) {
 				logger.info(`Starting to write on client: ${CLIENT}`);
 				callback();
 				clearInterval(timer);
-			}
-			if (isFailover) {
-				console.log('in here')
-				throw new Error(`Failing over client: ${CLIENT}`);
 			}
 		}, 500);
 
@@ -85,6 +80,13 @@ export const ConfigurationService = (
 
 	const checkConnectedClients = async () => {
 		const clients = await getClients();
+
+		const client = clients.find(client => client.id === CLIENT)
+
+		if (client?.isFailover) {
+			throw new Error(`Failing over client: ${CLIENT}`);
+		}
+
 		const disconnectedClients = clients?.filter(
 			(client) => (client?.freshness || 0) < Date.now() - FRESHNESS_TTL
 		);
@@ -123,10 +125,9 @@ export const ConfigurationService = (
 			throw new Error('Failed promoting a client: No client exists');
 		}
 
+		logger.alert(`Promoting new publishing client: ${firstClient.id}`);
 		const payload = { ...firstClient, isWriting: true };
 		await redisClient.lSet(REDIS_CONFIG_KEY, 0, JSON.stringify(payload));
-
-		logger.alert(`Promoting new publishing client: ${firstClient.id}`);
 	};
 
 	const getClients = async (): Promise<Client[]> => {

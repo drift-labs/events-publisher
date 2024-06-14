@@ -121,7 +121,7 @@ export const ConfigurationService = (
 	const promote = async () => {
 		const clients = await getClients();
 		const firstClient = clients?.[0];
-		if (!firstClient.id) {
+		if (!firstClient?.id) {
 			throw new Error('Failed promoting a client: No client exists');
 		}
 

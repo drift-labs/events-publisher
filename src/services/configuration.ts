@@ -14,7 +14,8 @@ interface Client {
 
 export const ConfigurationService = (
 	redisClient: RedisClient,
-	logger: Logger
+	logger: Logger,
+	currentSlot: () => void
 ) => {
 	logger.info(`Starting up client: ${CLIENT}`);
 
@@ -28,7 +29,7 @@ export const ConfigurationService = (
 			await checkConnectedClients();
 			await checkIfShouldPromote();
 			await checkIfMultipleWriteClients();
-		}, 500);
+		}, 100);
 	};
 
 	const shutdown = async () => {
@@ -59,7 +60,7 @@ export const ConfigurationService = (
 				callback();
 				clearInterval(timer);
 			}
-		}, 500);
+		}, 100);
 
 		redisClient.forceGetClient().on('error', (e) => {
 			throw new Error(`Redis Error: ${e.message}`);
@@ -110,7 +111,7 @@ export const ConfigurationService = (
 	const updateFreshness = async () => {
 		const clients = await getClients();
 		const clientIndex = clients.findIndex((client) => client.id === CLIENT);
-		const payload = { ...clients[clientIndex], freshness: Date.now() };
+		const payload = { ...clients[clientIndex], freshness: Date.now(), currentSlot: currentSlot() };
 		await redisClient.lSet(
 			REDIS_CONFIG_KEY,
 			clientIndex,

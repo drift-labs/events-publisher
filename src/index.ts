@@ -24,7 +24,7 @@ export async function main() {
 		wallet: new Wallet(new Keypair()),
 	});
 
-	const { subscribe } = GrpcEventSubscriber(
+	const { subscribe, currentSlot } = GrpcEventSubscriber(
 		driftClient,
 		redisClient,
 		logger,
@@ -37,7 +37,8 @@ export async function main() {
 
 	const { setupClient, shutdown, awaitPromotion } = ConfigurationService(
 		redisClient,
-		logger
+		logger,
+		currentSlot
 	);
 
 	const handleShutdown = async (message: string) => {

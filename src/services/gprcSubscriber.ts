@@ -26,7 +26,16 @@ export const GrpcEventSubscriber = (
 ) => {
 	let stream: ClientDuplexStream<SubscribeRequest, SubscribeUpdate>;
 	let mostRecentSlot = -1;
-	let currentlyWriting = true;
+	let inactivityTimer;
+
+	const resetInactivityTimer = () => {
+		if (inactivityTimer) {
+			clearTimeout(inactivityTimer);
+		}
+		inactivityTimer = setTimeout(() => {
+			throw new Error('Publisher has not written an event in 5000ms');
+		}, 5000);
+	};
 
 	const subscribe = async (): Promise<void> => {
 		const client = new Client(config.endpoint, config.token);
@@ -51,6 +60,8 @@ export const GrpcEventSubscriber = (
 		};
 
 		stream.on('data', async (chunk: any) => {
+			resetInactivityTimer();
+			
 			const startTime = Date.now();
 
 			if (!chunk.transaction) {
@@ -58,13 +69,15 @@ export const GrpcEventSubscriber = (
 			}
 
 			const slot = Number(chunk.transaction.slot);
-			console.log('Writing', slot)
+			console.log('Writing', slot);
 			if (slot > mostRecentSlot) mostRecentSlot = slot;
 			const logs = chunk.transaction.transaction.meta.logMessages;
 			const events = parseLogs(driftClient.program, logs);
 			const txSig = bs58.encode(chunk.transaction.transaction.signature);
 
 			const eventTypes = new Set<string>();
+
+			const promises = [];
 
 			let runningEventIndex = 0;
 			for (const event of events) {
@@ -75,40 +88,33 @@ export const GrpcEventSubscriber = (
 				event.data.txSigIndex = runningEventIndex;
 
 				const eventType = event.name as EventType;
-				eventTypes.add(eventType)
+				eventTypes.add(eventType);
 
 				const serializer = getSerializerFromEventType(eventType);
 				if (serializer) {
 					const serialized = serializer(event.data);
 					if (WRITING) {
-						await redisClient.zAdd(
-							event.name,
-							startTime + getTtlForRecord(eventType, serialized),
-							JSON.stringify(serialized)
+						promises.push(
+							redisClient.zAdd(
+								event.name,
+								startTime + getTtlForRecord(eventType, serialized),
+								JSON.stringify(serialized)
+							)
 						);
 					}
-					await redisClient.publish(event.name, serialized);
+					promises.push(redisClient.publish(event.name, serialized));
 				}
 				runningEventIndex++;
 			}
 
-			eventTypes.forEach(async (eventType) => {
-				await redisClient.zRemRangeByScore(
-					eventType,
-					-Infinity,
-					startTime
-				);
-			})
+			await Promise.all(promises);
 
-			currentlyWriting = true;
+			await Promise.all(
+				Array.from(eventTypes).map(async (eventType) => {
+					await redisClient.zRemRangeByScore(eventType, -Infinity, startTime);
+				})
+			);
 		});
-
-		setInterval(() => {
-			if (!currentlyWriting) {
-				throw new Error('Publisher has not written an event in 10000ms');
-			}
-			currentlyWriting = false;
-		}, 10000);
 
 		return new Promise<void>((resolve, reject) => {
 			stream!.write(request, (err: Error) => {
@@ -150,8 +156,13 @@ export const GrpcEventSubscriber = (
 		});
 	};
 
+	const currentSlot = () => {
+		return mostRecentSlot;
+	};
+
 	return {
 		subscribe,
 		unsubscribe,
+		currentSlot,
 	};
 };

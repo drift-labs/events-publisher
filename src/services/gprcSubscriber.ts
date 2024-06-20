@@ -64,6 +64,8 @@ export const GrpcEventSubscriber = (
 			const events = parseLogs(driftClient.program, logs);
 			const txSig = bs58.encode(chunk.transaction.transaction.signature);
 
+			const eventTypes = new Set<string>();
+
 			let runningEventIndex = 0;
 			for (const event of events) {
 				// @ts-ignore
@@ -73,6 +75,8 @@ export const GrpcEventSubscriber = (
 				event.data.txSigIndex = runningEventIndex;
 
 				const eventType = event.name as EventType;
+				eventTypes.add(eventType)
+
 				const serializer = getSerializerFromEventType(eventType);
 				if (serializer) {
 					const serialized = serializer(event.data);
@@ -88,12 +92,13 @@ export const GrpcEventSubscriber = (
 				runningEventIndex++;
 			}
 
-			// Only remove OrderActionRecords for now
-			await redisClient.zRemRangeByScore(
-				'OrderActionRecord',
-				-Infinity,
-				startTime
-			);
+			eventTypes.forEach(async (eventType) => {
+				await redisClient.zRemRangeByScore(
+					eventType,
+					-Infinity,
+					startTime
+				);
+			})
 
 			currentlyWriting = true;
 		});

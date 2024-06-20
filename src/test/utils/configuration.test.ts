@@ -24,6 +24,7 @@ describe('ConfigurationService', () => {
 
 	beforeEach(() => {
 		vi.spyOn(Date, 'now').mockReturnValue(1670994900000);
+		const mockSlot = vi.fn().mockReturnValue(1);
 
 		redisClient = {
 			rPush: vi.fn(),
@@ -41,7 +42,7 @@ describe('ConfigurationService', () => {
 			info: vi.fn(),
 			alert: vi.fn(),
 		} as any;
-		service = ConfigurationService(redisClient, logger);
+		service = ConfigurationService(redisClient, logger, mockSlot);
 	});
 
 	afterEach(() => {
@@ -186,7 +187,7 @@ describe('ConfigurationService', () => {
 			expect(redisClient.lSet).toHaveBeenCalledWith(
 				'events-publisher-config',
 				1,
-				'{"id":"mock-uuid","freshness":1670994900000}'
+				'{"id":"mock-uuid","freshness":1670994900000,"currentSlot":1}'
 			);
 		});
 	});

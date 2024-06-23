@@ -33,8 +33,8 @@ export const GrpcEventSubscriber = (
 			clearTimeout(inactivityTimer);
 		}
 		inactivityTimer = setTimeout(() => {
-			throw new Error('Publisher has not written an event in 5000ms');
-		}, 5000);
+			throw new Error('Publisher has not written an event in 30000ms');
+		}, 30000);
 	};
 
 	const subscribe = async (): Promise<void> => {

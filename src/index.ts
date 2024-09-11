@@ -7,7 +7,7 @@ import { DriftClient, DriftEnv, EventType, Wallet } from "@drift-labs/sdk";
 import { ClientDuplexStream } from "@grpc/grpc-js";
 import { Connection, Keypair } from "@solana/web3.js";
 import { fromEventPattern } from "rxjs";
-import { parseLogs } from "@drift-labs/sdk";
+import { parseLogsWithRaw } from "@drift-labs/sdk";
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm"; // ES Modules import
 import Redis from "ioredis";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
@@ -90,11 +90,17 @@ export class GrpcEventSubscriber {
       const slot = Number(chunk.transaction.slot);
       if (slot > this.mostRecentSlot) this.mostRecentSlot = slot;
       const logs = chunk.transaction.transaction.meta.logMessages;
-      const events = parseLogs(this.driftClient.program, logs);
+      const { events, rawLogs } = parseLogsWithRaw(
+        this.driftClient.program,
+        logs,
+      );
       const txSig = bs58.encode(chunk.transaction.transaction.signature);
 
       let runningEventIndex = 0;
-      for (const event of events) {
+      for (let i = 0; i < events.length; i++) {
+        const event = events[i];
+        const rawLog = rawLogs[i];
+
         // @ts-ignore
         event.data.txSig = txSig;
         event.data.slot = slot;
@@ -105,6 +111,7 @@ export class GrpcEventSubscriber {
         const serializer = getSerializerFromEventType(eventType);
         if (serializer) {
           const serialized = serializer(event.data);
+          serialized.rawLog = rawLog;
           if (WRITING) {
             redis.rpush(event.name, JSON.stringify(serialized));
           }

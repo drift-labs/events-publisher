@@ -4,13 +4,11 @@ import * as http from "http";
 import compression from "compression";
 import { WebSocket, WebSocketServer } from "ws";
 import { register, Gauge } from "prom-client";
-import { DriftEnv, EventType, PublicKey } from "@drift-labs/sdk";
+import { EventType, PublicKey } from "@drift-labs/sdk";
 import { createRedisClient, getEventTypeFromChannel } from "./utils/utils";
-import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 
 // Set up env constants
 require("dotenv").config();
-const driftEnv = (process.env.ENV || "devnet") as DriftEnv;
 
 const app = express();
 app.use(cors({ origin: "*" }));
@@ -32,6 +30,7 @@ const wss = new WebSocketServer({
 const WS_PORT = process.env.WS_PORT || "3000";
 const RUNNING_LOCAL = process.env.RUNNING_LOCAL === "true";
 const MAX_BUFFERED_AMOUNT = 300000;
+const REDIS_HOST = process.env.ELASTICACHE_HOST || "localhost";
 
 console.log(`WS LISTENER PORT : ${WS_PORT}`);
 
@@ -62,23 +61,10 @@ const validateUser = (message: any): void => {
 };
 
 async function main() {
-  // Subscribe to redis
-  const ssmClient = new SSMClient({
-    region: process.env.ENV === "devnet" ? "us-east-1" : "eu-west-1",
-  });
-  const input = {
-    Name: `/${process.env.BRANCH_NAME}/eventsElasticache`,
-  };
-  const command = new GetParameterCommand(input);
-  const response = await ssmClient.send(command);
-  const uri = response.Parameter?.Value;
-  if (!uri) {
-    throw new Error("Missing Elasticache URIs in parameter store");
-  }
   const redisClient = createRedisClient(
-    RUNNING_LOCAL ? "localhost" : (uri as string),
+    RUNNING_LOCAL ? "localhost" : (REDIS_HOST as string),
     RUNNING_LOCAL ? 6377 : 6379,
-    !RUNNING_LOCAL,
+    !RUNNING_LOCAL
   );
   await redisClient.connect();
 
@@ -92,7 +78,7 @@ async function main() {
   const findUserSubscribersAndSend = (
     user: string,
     channel: EventType,
-    message: string,
+    message: string
   ) => {
     const subscribers = userChannelSubscribers
       .get(user)
@@ -127,7 +113,7 @@ async function main() {
           ws.bufferedAmount < MAX_BUFFERED_AMOUNT
         )
           ws.send(
-            JSON.stringify({ channel: subscribedChannel, data: message }),
+            JSON.stringify({ channel: subscribedChannel, data: message })
           );
       });
     }
@@ -137,12 +123,12 @@ async function main() {
       findUserSubscribersAndSend(
         messageObject.taker,
         "OrderActionRecord",
-        message,
+        message
       );
       findUserSubscribersAndSend(
         messageObject.maker,
         "OrderActionRecord",
-        message,
+        message
       );
     } else {
       findUserSubscribersAndSend(user, subscribedChannel as EventType, message);
@@ -182,7 +168,7 @@ async function main() {
                   error:
                     "Error subscribing to channel with data: " +
                     JSON.stringify(parsedMessage),
-                }),
+                })
               );
             } else {
               ws.close(
@@ -191,7 +177,7 @@ async function main() {
                   error:
                     "Error subscribing to channel with data: " +
                     JSON.stringify(parsedMessage),
-                }),
+                })
               );
             }
             return;
@@ -208,7 +194,7 @@ async function main() {
                   error:
                     "Error subscribing to user with data: " +
                     JSON.stringify(parsedMessage),
-                }),
+                })
               );
               return;
             }
@@ -226,7 +212,7 @@ async function main() {
                 ws.send(
                   JSON.stringify({
                     error: `Error subscribing to channel: ${parsedMessage}`,
-                  }),
+                  })
                 );
                 return;
               });
@@ -258,7 +244,7 @@ async function main() {
           ws.send(
             JSON.stringify({
               message: `Subscribe received for channel: ${parsedMessage.channel}, user: ${parsedMessage.user}`,
-            }),
+            })
           );
           break;
         }
@@ -276,7 +262,7 @@ async function main() {
                   error:
                     "Error unsubscribing from channel with data: " +
                     JSON.stringify(parsedMessage),
-                }),
+                })
               );
             } else {
               ws.close(
@@ -285,7 +271,7 @@ async function main() {
                   error:
                     "Error unsubscribing from channel with data: " +
                     JSON.stringify(parsedMessage),
-                }),
+                })
               );
             }
             return;
@@ -302,7 +288,7 @@ async function main() {
                   error:
                     "Error subscribing to user with data: " +
                     JSON.stringify(parsedMessage),
-                }),
+                })
               );
               return;
             }

@@ -29,6 +29,7 @@ if (!endpoint) {
 const token = process.env.TOKEN;
 const RUNNING_LOCAL = process.env.RUNNING_LOCAL === "true";
 const WRITING = process.env.WRITING === "true";
+const REDIS_HOST = process.env.ELASTICACHE_HOST || "localhost";
 
 export class GrpcEventSubscriber {
   config: grpcEventsSubscriberConfig;
@@ -42,23 +43,10 @@ export class GrpcEventSubscriber {
   }
 
   public async subscribe(): Promise<void> {
-    // Subscribe to redis
-    const ssmClient = new SSMClient({
-      region: process.env.ENV === "devnet" ? "us-east-1" : "eu-west-1",
-    });
-    const input = {
-      Name: `/${process.env.BRANCH_NAME}/eventsElasticache`,
-    };
-    const command = new GetParameterCommand(input);
-    const response = await ssmClient.send(command);
-    const uri = response.Parameter?.Value;
-    if (!uri) {
-      throw new Error("Missing Elasticache URIs in parameter store");
-    }
     const redis = createRedisClient(
-      RUNNING_LOCAL ? "localhost" : (uri as string),
+      RUNNING_LOCAL ? "localhost" : (REDIS_HOST as string),
       RUNNING_LOCAL ? 6377 : 6379,
-      !RUNNING_LOCAL,
+      !RUNNING_LOCAL
     );
     await redis.connect();
 
@@ -153,7 +141,7 @@ export class GrpcEventSubscriber {
           } else {
             reject(err);
           }
-        },
+        }
       );
     }).catch((reason) => {
       console.error(reason);

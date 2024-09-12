@@ -7,7 +7,7 @@ import { DriftClient, DriftEnv, EventType, Wallet } from "@drift-labs/sdk";
 import { ClientDuplexStream } from "@grpc/grpc-js";
 import { Connection, Keypair } from "@solana/web3.js";
 import { fromEventPattern } from "rxjs";
-import { parseLogs } from "@drift-labs/sdk";
+import { parseLogsWithRaw } from "@drift-labs/sdk";
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm"; // ES Modules import
 import Redis from "ioredis";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
@@ -29,6 +29,7 @@ if (!endpoint) {
 const token = process.env.TOKEN;
 const RUNNING_LOCAL = process.env.RUNNING_LOCAL === "true";
 const WRITING = process.env.WRITING === "true";
+const REDIS_HOST = process.env.ELASTICACHE_HOST || "localhost";
 
 export class GrpcEventSubscriber {
   config: grpcEventsSubscriberConfig;
@@ -42,23 +43,10 @@ export class GrpcEventSubscriber {
   }
 
   public async subscribe(): Promise<void> {
-    // Subscribe to redis
-    const ssmClient = new SSMClient({
-      region: process.env.ENV === "devnet" ? "us-east-1" : "eu-west-1",
-    });
-    const input = {
-      Name: `/${process.env.BRANCH_NAME}/eventsElasticache`,
-    };
-    const command = new GetParameterCommand(input);
-    const response = await ssmClient.send(command);
-    const uri = response.Parameter?.Value;
-    if (!uri) {
-      throw new Error("Missing Elasticache URIs in parameter store");
-    }
     const redis = createRedisClient(
-      RUNNING_LOCAL ? "localhost" : (uri as string),
+      RUNNING_LOCAL ? "localhost" : (REDIS_HOST as string),
       RUNNING_LOCAL ? 6377 : 6379,
-      !RUNNING_LOCAL,
+      !RUNNING_LOCAL
     );
     await redis.connect();
 
@@ -90,11 +78,17 @@ export class GrpcEventSubscriber {
       const slot = Number(chunk.transaction.slot);
       if (slot > this.mostRecentSlot) this.mostRecentSlot = slot;
       const logs = chunk.transaction.transaction.meta.logMessages;
-      const events = parseLogs(this.driftClient.program, logs);
+      const { events, rawLogs } = parseLogsWithRaw(
+        this.driftClient.program,
+        logs,
+      );
       const txSig = bs58.encode(chunk.transaction.transaction.signature);
 
       let runningEventIndex = 0;
-      for (const event of events) {
+      for (let i = 0; i < events.length; i++) {
+        const event = events[i];
+        const rawLog = rawLogs[i];
+
         // @ts-ignore
         event.data.txSig = txSig;
         event.data.slot = slot;
@@ -105,6 +99,7 @@ export class GrpcEventSubscriber {
         const serializer = getSerializerFromEventType(eventType);
         if (serializer) {
           const serialized = serializer(event.data);
+          serialized.rawLog = rawLog;
           if (WRITING) {
             redis.rpush(event.name, JSON.stringify(serialized));
           }
@@ -146,7 +141,7 @@ export class GrpcEventSubscriber {
           } else {
             reject(err);
           }
-        },
+        }
       );
     }).catch((reason) => {
       console.error(reason);

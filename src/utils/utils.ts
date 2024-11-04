@@ -1,42 +1,9 @@
 import { EventType } from "@drift-labs/sdk";
-import {
-  EventType as SweepstakesEventType,
-  Serializer as SweepstakesSerializer,
-} from "@drift-labs/competitions-sdk";
-import Redis from "ioredis";
 import { Serializer } from "@drift/common";
-
-export const createRedisClient = (
-  host: string,
-  port: number,
-  tls?: boolean,
-) => {
-  const redis = new Redis({
-    host,
-    port,
-    retryStrategy: (times) => {
-      const delay = Math.min(times * 1000, 10000);
-      console.log(`Reconnecting to Redis in ${delay}ms... (retries: ${times})`);
-      return delay;
-    },
-    reconnectOnError: (err) => {
-      const targetError = "ECONNREFUSED";
-      if (err.message.includes(targetError)) {
-        console.log(`Redis error: ${targetError}. Attempting to reconnect...`);
-        return true;
-      }
-      return false;
-    },
-    maxRetriesPerRequest: null, // unlimited retries
-    lazyConnect: true,
-    tls: tls ? {} : undefined,
-  });
-  return redis;
-};
 
 export const getEventTypeFromChannel = (
   channel: string,
-): EventType | SweepstakesEventType | undefined => {
+): EventType | undefined => {
   const lowercaseChannel = channel.toLowerCase();
   switch (lowercaseChannel) {
     case "deposit":
@@ -81,25 +48,13 @@ export const getEventTypeFromChannel = (
     case "curve":
     case "curverecord":
       return "CurveRecord";
-    // Sweepstakes
-    case "competitionroundsummaryrecord":
-    case "competitionroundsummary":
-      return "CompetitionRoundSummaryRecord";
-    case "competitionroundwinnerrecord":
-    case "competitionroundwinner":
-      return "CompetitionRoundWinnerRecord";
-    case "competitorsettledrecord":
-    case "competitorsettled":
-      return "CompetitorSettledRecord";
     case undefined:
     default:
       return undefined;
   }
 };
 
-export const getSerializerFromEventType = (
-  eventType: EventType | SweepstakesEventType,
-) => {
+export const getSerializerFromEventType = (eventType: EventType) => {
   switch (eventType) {
     case "DepositRecord":
       return Serializer.Serialize.Deposit;
@@ -125,10 +80,6 @@ export const getSerializerFromEventType = (
       return Serializer.Serialize.SwapRecord;
     case "InsuranceFundStakeRecord":
       return Serializer.Serialize.InsuranceFundStakeRecord;
-    case "CompetitionRoundSummaryRecord":
-      return SweepstakesSerializer.Serialize.SerializableSummaryEvent;
-    case "CompetitionRoundWinnerRecord":
-      return SweepstakesSerializer.Serialize.SerializableCompetitionRoundWinner;
     case "SpotInterestRecord":
       return Serializer.Serialize.SpotInterestRecord;
     case "CurveRecord":

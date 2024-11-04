@@ -3,7 +3,13 @@ import Client, {
   SubscribeRequest,
   SubscribeUpdate,
 } from "@triton-one/yellowstone-grpc";
-import { DriftClient, DriftEnv, EventType, Wallet } from "@drift-labs/sdk";
+import {
+  DriftClient,
+  DriftEnv,
+  EventType,
+  SwiftOrderRecord,
+  Wallet,
+} from "@drift-labs/sdk";
 import { ClientDuplexStream } from "@grpc/grpc-js";
 import { Connection, Keypair } from "@solana/web3.js";
 import { fromEventPattern } from "rxjs";
@@ -11,7 +17,8 @@ import { parseLogsWithRaw } from "@drift-labs/sdk";
 import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm"; // ES Modules import
 import Redis from "ioredis";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
-import { createRedisClient, getSerializerFromEventType } from "./utils/utils";
+import { getSerializerFromEventType } from "./utils/utils";
+import { RedisClient } from "@drift/common/clients";
 
 require("dotenv").config();
 
@@ -27,9 +34,6 @@ if (!endpoint) {
   throw new Error("Missing GRPC_ENDPOINT");
 }
 const token = process.env.TOKEN;
-const RUNNING_LOCAL = process.env.RUNNING_LOCAL === "true";
-const WRITING = process.env.WRITING === "true";
-const REDIS_HOST = process.env.ELASTICACHE_HOST || "localhost";
 
 export class GrpcEventSubscriber {
   config: grpcEventsSubscriberConfig;
@@ -43,11 +47,7 @@ export class GrpcEventSubscriber {
   }
 
   public async subscribe(): Promise<void> {
-    const redis = createRedisClient(
-      RUNNING_LOCAL ? "localhost" : (REDIS_HOST as string),
-      RUNNING_LOCAL ? 6377 : 6379,
-      !RUNNING_LOCAL
-    );
+    const redis = new RedisClient({});
     await redis.connect();
 
     const client = new Client(this.config.endpoint, this.config.token);
@@ -96,13 +96,16 @@ export class GrpcEventSubscriber {
         event.data.txSigIndex = runningEventIndex;
 
         const eventType = event.name as EventType;
+        if (eventType === "SwiftOrderRecord") {
+          const hash = event.data.hash;
+          redis.setExpiring(`swift-hashes::${hash}`, "whats good", 60 * 3);
+          continue;
+        }
+
         const serializer = getSerializerFromEventType(eventType);
         if (serializer) {
           const serialized = serializer(event.data);
           serialized.rawLog = rawLog;
-          if (WRITING) {
-            redis.rpush(event.name, JSON.stringify(serialized));
-          }
           redis.publish(event.name, JSON.stringify(serialized));
         }
         runningEventIndex++;
@@ -141,7 +144,7 @@ export class GrpcEventSubscriber {
           } else {
             reject(err);
           }
-        }
+        },
       );
     }).catch((reason) => {
       console.error(reason);

@@ -5,7 +5,8 @@ import compression from "compression";
 import { WebSocket, WebSocketServer } from "ws";
 import { register, Gauge } from "prom-client";
 import { EventType, PublicKey } from "@drift-labs/sdk";
-import { createRedisClient, getEventTypeFromChannel } from "./utils/utils";
+import { getEventTypeFromChannel } from "./utils/utils";
+import { RedisClient } from "@drift/common/clients";
 
 // Set up env constants
 require("dotenv").config();
@@ -61,11 +62,7 @@ const validateUser = (message: any): void => {
 };
 
 async function main() {
-  const redisClient = createRedisClient(
-    RUNNING_LOCAL ? "localhost" : (REDIS_HOST as string),
-    RUNNING_LOCAL ? 6377 : 6379,
-    !RUNNING_LOCAL
-  );
+  const redisClient = new RedisClient({});
   await redisClient.connect();
 
   const subscribedRedisChannels = new Set<EventType>();
@@ -78,7 +75,7 @@ async function main() {
   const findUserSubscribersAndSend = (
     user: string,
     channel: EventType,
-    message: string
+    message: string,
   ) => {
     const subscribers = userChannelSubscribers
       .get(user)
@@ -94,7 +91,7 @@ async function main() {
     }
   };
 
-  redisClient.on("connect", () => {
+  redisClient.forceGetClient().on("connect", () => {
     subscribedRedisChannels.forEach(async (channel) => {
       try {
         await redisClient.subscribe(channel);
@@ -104,7 +101,7 @@ async function main() {
     });
   });
 
-  redisClient.on("message", (subscribedChannel: EventType, message) => {
+  redisClient.forceGetClient().on("message", (subscribedChannel: EventType, message) => {
     const subscribers = channelSubscribers.get(subscribedChannel);
     if (subscribers) {
       subscribers.forEach((ws) => {
@@ -113,7 +110,7 @@ async function main() {
           ws.bufferedAmount < MAX_BUFFERED_AMOUNT
         )
           ws.send(
-            JSON.stringify({ channel: subscribedChannel, data: message })
+            JSON.stringify({ channel: subscribedChannel, data: message }),
           );
       });
     }
@@ -123,19 +120,19 @@ async function main() {
       findUserSubscribersAndSend(
         messageObject.taker,
         "OrderActionRecord",
-        message
+        message,
       );
       findUserSubscribersAndSend(
         messageObject.maker,
         "OrderActionRecord",
-        message
+        message,
       );
     } else {
       findUserSubscribersAndSend(user, subscribedChannel as EventType, message);
     }
   });
 
-  redisClient.on("error", (error) => {
+  redisClient.forceGetClient().on("error", (error) => {
     console.error("Redis client error:", error);
   });
 
@@ -168,7 +165,7 @@ async function main() {
                   error:
                     "Error subscribing to channel with data: " +
                     JSON.stringify(parsedMessage),
-                })
+                }),
               );
             } else {
               ws.close(
@@ -177,7 +174,7 @@ async function main() {
                   error:
                     "Error subscribing to channel with data: " +
                     JSON.stringify(parsedMessage),
-                })
+                }),
               );
             }
             return;
@@ -194,7 +191,7 @@ async function main() {
                   error:
                     "Error subscribing to user with data: " +
                     JSON.stringify(parsedMessage),
-                })
+                }),
               );
               return;
             }
@@ -212,7 +209,7 @@ async function main() {
                 ws.send(
                   JSON.stringify({
                     error: `Error subscribing to channel: ${parsedMessage}`,
-                  })
+                  }),
                 );
                 return;
               });
@@ -244,7 +241,7 @@ async function main() {
           ws.send(
             JSON.stringify({
               message: `Subscribe received for channel: ${parsedMessage.channel}, user: ${parsedMessage.user}`,
-            })
+            }),
           );
           break;
         }
@@ -262,7 +259,7 @@ async function main() {
                   error:
                     "Error unsubscribing from channel with data: " +
                     JSON.stringify(parsedMessage),
-                })
+                }),
               );
             } else {
               ws.close(
@@ -271,7 +268,7 @@ async function main() {
                   error:
                     "Error unsubscribing from channel with data: " +
                     JSON.stringify(parsedMessage),
-                })
+                }),
               );
             }
             return;
@@ -288,7 +285,7 @@ async function main() {
                   error:
                     "Error subscribing to user with data: " +
                     JSON.stringify(parsedMessage),
-                })
+                }),
               );
               return;
             }

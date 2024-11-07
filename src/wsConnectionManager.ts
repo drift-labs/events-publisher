@@ -101,36 +101,42 @@ async function main() {
     });
   });
 
-  redisClient.forceGetClient().on("message", (subscribedChannel: EventType, message) => {
-    const subscribers = channelSubscribers.get(subscribedChannel);
-    if (subscribers) {
-      subscribers.forEach((ws) => {
-        if (
-          ws.readyState === WebSocket.OPEN &&
-          ws.bufferedAmount < MAX_BUFFERED_AMOUNT
-        )
-          ws.send(
-            JSON.stringify({ channel: subscribedChannel, data: message }),
-          );
-      });
-    }
-    const messageObject = JSON.parse(message);
-    let user = messageObject.user;
-    if (subscribedChannel === "OrderActionRecord") {
-      findUserSubscribersAndSend(
-        messageObject.taker,
-        "OrderActionRecord",
-        message,
-      );
-      findUserSubscribersAndSend(
-        messageObject.maker,
-        "OrderActionRecord",
-        message,
-      );
-    } else {
-      findUserSubscribersAndSend(user, subscribedChannel as EventType, message);
-    }
-  });
+  redisClient
+    .forceGetClient()
+    .on("message", (subscribedChannel: EventType, message) => {
+      const subscribers = channelSubscribers.get(subscribedChannel);
+      if (subscribers) {
+        subscribers.forEach((ws) => {
+          if (
+            ws.readyState === WebSocket.OPEN &&
+            ws.bufferedAmount < MAX_BUFFERED_AMOUNT
+          )
+            ws.send(
+              JSON.stringify({ channel: subscribedChannel, data: message }),
+            );
+        });
+      }
+      const messageObject = JSON.parse(message);
+      let user = messageObject.user;
+      if (subscribedChannel === "OrderActionRecord") {
+        findUserSubscribersAndSend(
+          messageObject.taker,
+          "OrderActionRecord",
+          message,
+        );
+        findUserSubscribersAndSend(
+          messageObject.maker,
+          "OrderActionRecord",
+          message,
+        );
+      } else {
+        findUserSubscribersAndSend(
+          user,
+          subscribedChannel as EventType,
+          message,
+        );
+      }
+    });
 
   redisClient.forceGetClient().on("error", (error) => {
     console.error("Redis client error:", error);

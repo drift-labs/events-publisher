@@ -7,6 +7,7 @@ import {
   DriftClient,
   DriftEnv,
   EventType,
+  ResubOpts,
   SwiftOrderRecord,
   Wallet,
 } from "@drift-labs/sdk";
@@ -26,6 +27,7 @@ type grpcEventsSubscriberConfig = {
   programId: string;
   endpoint: string;
   token: string;
+  resubOpts: ResubOpts;
 };
 
 const driftEnv = (process.env.ENV || "devnet") as DriftEnv;
@@ -34,12 +36,17 @@ if (!endpoint) {
   throw new Error("Missing GRPC_ENDPOINT");
 }
 const token = process.env.TOKEN;
+const resubTimeout = process.env.RESUB_TIMEOUT_MS || 5_000;
 
 export class GrpcEventSubscriber {
   config: grpcEventsSubscriberConfig;
   driftClient: DriftClient;
   stream?: ClientDuplexStream<SubscribeRequest, SubscribeUpdate>;
   mostRecentSlot: number = -1;
+
+  timeoutId?: NodeJS.Timeout;
+  isUnsubscribing = false;
+  receivingData: boolean;
 
   constructor(driftClient: DriftClient, config: grpcEventsSubscriberConfig) {
     this.driftClient = driftClient;
@@ -50,7 +57,7 @@ export class GrpcEventSubscriber {
     const redis = new RedisClient({});
     await redis.connect();
 
-    const client = new Client(this.config.endpoint, this.config.token);
+    const client = new Client(this.config.endpoint, this.config.token, {});
     this.stream = await client.subscribe();
     const request: SubscribeRequest = {
       slots: {},
@@ -69,12 +76,19 @@ export class GrpcEventSubscriber {
       accountsDataSlice: [],
       commitment: CommitmentLevel.CONFIRMED,
       entry: {},
+      transactionsStatus: {},
     };
 
     this.stream.on("data", (chunk: any) => {
       if (!chunk.transaction) {
         return;
       }
+
+      if (this.config.resubOpts.resubTimeoutMs) {
+        this.receivingData = true;
+        clearTimeout(this.timeoutId!);
+      }
+
       const slot = Number(chunk.transaction.slot);
       if (slot > this.mostRecentSlot) this.mostRecentSlot = slot;
       const logs = chunk.transaction.transaction.meta.logMessages;
@@ -98,6 +112,7 @@ export class GrpcEventSubscriber {
         const eventType = event.name as EventType;
         if (eventType === "SwiftOrderRecord") {
           const hash = event.data.hash;
+          console.log(`SwiftOrderRecord hash: ${hash}`);
           redis.setExpiring(`swift-hashes::${hash}`, "whats good", 60 * 3);
           continue;
         }
@@ -109,6 +124,10 @@ export class GrpcEventSubscriber {
           redis.publish(event.name, JSON.stringify(serialized));
         }
         runningEventIndex++;
+      }
+
+      if (this.config.resubOpts.resubTimeoutMs) {
+        this.setTimeout();
       }
     });
 
@@ -126,10 +145,36 @@ export class GrpcEventSubscriber {
     });
   }
 
-  public async unsubscribe(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      this.stream!.write(
-        {
+  protected setTimeout(): void {
+    this.timeoutId = setTimeout(async () => {
+      if (this.isUnsubscribing) {
+        return;
+      }
+
+      if (this.receivingData) {
+        if (this.config.resubOpts.logResubMessages) {
+          console.log(
+            `No program logs in ${this.config.resubOpts.resubTimeoutMs}ms. Resubscribing...`,
+          );
+        }
+        await this.unsubscribe(true);
+        this.receivingData = false;
+        await this.subscribe();
+      }
+    }, this.config.resubOpts?.resubTimeoutMs);
+  }
+
+  async unsubscribe(onResub = false): Promise<void> {
+    if (!onResub) {
+      this.config.resubOpts.resubTimeoutMs = undefined;
+    }
+    this.isUnsubscribing = true;
+    clearTimeout(this.timeoutId);
+    this.timeoutId = undefined;
+
+    if (this.stream != null) {
+      const promise = new Promise<void>((resolve, reject) => {
+        const request: SubscribeRequest = {
           slots: {},
           accounts: {},
           transactions: {},
@@ -137,19 +182,25 @@ export class GrpcEventSubscriber {
           blocksMeta: {},
           accountsDataSlice: [],
           entry: {},
-        },
-        (err: Error) => {
+          transactionsStatus: {},
+        };
+        this.stream.write(request, (err) => {
           if (err === null || err === undefined) {
+            this.stream = undefined;
+            this.isUnsubscribing = false;
             resolve();
           } else {
             reject(err);
           }
-        },
-      );
-    }).catch((reason) => {
-      console.error(reason);
-      throw reason;
-    });
+        });
+      }).catch((reason) => {
+        console.error(reason);
+        throw reason;
+      });
+      return promise;
+    } else {
+      this.isUnsubscribing = false;
+    }
   }
 }
 
@@ -163,6 +214,10 @@ async function main() {
     programId: driftClient.program.programId.toString(),
     endpoint: endpoint!,
     token: token!,
+    resubOpts: {
+      resubTimeoutMs: Number(resubTimeout),
+      logResubMessages: process.env.LOG_RESUB_MESSAGES === "true",
+    },
   });
   await eventSubscriber.subscribe();
 }

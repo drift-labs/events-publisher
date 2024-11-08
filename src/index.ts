@@ -47,16 +47,20 @@ export class GrpcEventSubscriber {
   timeoutId?: NodeJS.Timeout;
   isUnsubscribing = false;
   receivingData: boolean;
+  redisClient: RedisClient;
 
   constructor(driftClient: DriftClient, config: grpcEventsSubscriberConfig) {
     this.driftClient = driftClient;
     this.config = config;
   }
 
-  public async subscribe(): Promise<void> {
+  async init(): Promise<void> {
     const redis = new RedisClient({});
     await redis.connect();
+    this.redisClient = redis;
+  }
 
+  public async subscribe(): Promise<void> {
     const client = new Client(this.config.endpoint, this.config.token, {});
     this.stream = await client.subscribe();
     const request: SubscribeRequest = {
@@ -113,7 +117,11 @@ export class GrpcEventSubscriber {
         if (eventType === "SwiftOrderRecord") {
           const hash = event.data.hash;
           console.log(`SwiftOrderRecord hash: ${hash}`);
-          redis.setExpiring(`swift-hashes::${hash}`, "whats good", 60 * 3);
+          this.redisClient.setExpiring(
+            `swift-hashes::${hash}`,
+            "whats good",
+            60 * 3,
+          );
           continue;
         }
 
@@ -121,7 +129,7 @@ export class GrpcEventSubscriber {
         if (serializer) {
           const serialized = serializer(event.data);
           serialized.rawLog = rawLog;
-          redis.publish(event.name, JSON.stringify(serialized));
+          this.redisClient.publish(event.name, JSON.stringify(serialized));
         }
         runningEventIndex++;
       }
@@ -219,6 +227,7 @@ async function main() {
       logResubMessages: process.env.LOG_RESUB_MESSAGES === "true",
     },
   });
+  await eventSubscriber.init();
   await eventSubscriber.subscribe();
 }
 

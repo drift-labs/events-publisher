@@ -1,5 +1,5 @@
-FROM node:18-alpine AS builder
-RUN apk add git
+FROM node:18 AS builder
+RUN apt update -y && apt install git build-essential make python3 -y
 RUN npm install -g typescript @vercel/ncc
 
 ENV NODE_ENV=production

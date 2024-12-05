@@ -62,6 +62,5 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.ref_name }}
         run: |
-          kubectl get deployments -n  -n $BRANCH_NAME
-          # kubectl rollout restart -n $BRANCH_NAME deployment/events-publisher-app
-          # kubectl rollout restart -n $BRANCH_NAME deployment/events-ws-connection-manager-app
+          kubectl rollout restart -n $BRANCH_NAME deployment/events-publisher-app
+          kubectl rollout restart -n $BRANCH_NAME deployment/events-ws-connection-manager-app

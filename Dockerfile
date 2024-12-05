@@ -1,8 +1,8 @@
-FROM public.ecr.aws/bitnami/node:18
-RUN apt-get install git
-ENV NODE_ENV=production
-RUN npm install -g typescript
+FROM node:18-alpine AS builder
+RUN apk add git
+RUN npm install -g typescript @vercel/ncc
 
+ENV NODE_ENV=production
 WORKDIR /app
 COPY . .
 WORKDIR /app/drift-common/protocol/sdk
@@ -14,7 +14,12 @@ RUN yarn build
 WORKDIR /app
 RUN yarn
 RUN yarn build
+RUN ncc build lib/index.js -o dist
 
+FROM  node:18-alpine
+WORKDIR /app
+COPY --from=builder /app/dist/ dist/
+ENV NODE_ENV=production
 EXPOSE 9464
 
-CMD [ "yarn", "start" ]
+CMD ["node", "./dist/index.js"]

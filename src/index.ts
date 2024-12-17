@@ -8,15 +8,11 @@ import {
   DriftEnv,
   EventType,
   ResubOpts,
-  SwiftOrderRecord,
   Wallet,
 } from "@drift-labs/sdk";
 import { ClientDuplexStream } from "@grpc/grpc-js";
 import { Connection, Keypair } from "@solana/web3.js";
-import { fromEventPattern } from "rxjs";
 import { parseLogsWithRaw } from "@drift-labs/sdk";
-import { SSMClient, GetParameterCommand } from "@aws-sdk/client-ssm"; // ES Modules import
-import Redis from "ioredis";
 import { bs58 } from "@coral-xyz/anchor/dist/cjs/utils/bytes";
 import { getSerializerFromEventType } from "./utils/utils";
 import { RedisClient } from "@drift/common/clients";

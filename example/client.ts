@@ -98,8 +98,8 @@ export class WsClient extends EventEmitter {
 const client = new WsClient('wss://events.drift.trade/ws');
 const main = async () => {
 	client.on('connected', () => {
-		client.subscribe('OrderRecord', 'H5jfagEnMVNH3PMc2TU2F7tNuXE6b4zCwoL5ip1b4ZHi');
-		client.subscribe('OrderActionRecord', 'H5jfagEnMVNH3PMc2TU2F7tNuXE6b4zCwoL5ip1b4ZHi');
+		client.subscribe('OrderRecord', 'BRksHqLiq2gvQw1XxsZq6DXZjD3GB5a9J63tUBgd6QS9');
+		client.subscribe('OrderActionRecord', 'BRksHqLiq2gvQw1XxsZq6DXZjD3GB5a9J63tUBgd6QS9');
 	});
 	client.on('message', (data) => {
 		console.log('Received:', data);

@@ -125,7 +125,7 @@ export class GrpcEventSubscriber {
         if (serializer) {
           const serialized = serializer(event.data);
           serialized.rawLog = rawLog;
-          this.redisClient.publish(event.name, JSON.stringify(serialized));
+          this.redisClient.publish(event.name, serialized);
         }
         runningEventIndex++;
       }

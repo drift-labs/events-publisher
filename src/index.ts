@@ -115,7 +115,7 @@ export class GrpcEventSubscriber {
           console.log(`SwiftOrderRecord hash: ${hash}`);
           this.redisClient.setExpiring(
             `swift-hashes::${hash}`,
-            "whats good",
+            event.data.userOrderId,
             60 * 3,
           );
           continue;

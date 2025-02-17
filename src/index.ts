@@ -110,9 +110,9 @@ export class GrpcEventSubscriber {
         event.data.txSigIndex = runningEventIndex;
 
         const eventType = event.name as EventType;
-        if (eventType === "SwiftOrderRecord") {
+        if (eventType === "SignedMsgOrderRecord") {
           const hash = event.data.hash;
-          console.log(`SwiftOrderRecord hash: ${hash}`);
+          console.log(`SignedMsgOrderRecord hash: ${hash}`);
           this.redisClient.setExpiring(
             `swift-hashes::${hash}`,
             event.data.userOrderId,

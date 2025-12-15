@@ -1,4 +1,5 @@
-FROM node:18 AS builder
+FROM public.ecr.aws/docker/library/node:22 AS builder
+RUN npm install -g bun typescript ts-node husky
 
 WORKDIR /app
 
@@ -24,7 +25,7 @@ WORKDIR /app
 COPY . .
 RUN bun install && bun run build
 
-FROM node:18-alpine
+FROM public.ecr.aws/docker/library/node:22-alpine
 COPY --from=builder /app/dist/ ./lib/
 
 ENV NODE_ENV=production

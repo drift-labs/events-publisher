@@ -12,7 +12,7 @@
     "eslint": "^8.0.1",
     "eslint-config-standard-with-typescript": "^43.0.1",
     "eslint-plugin-import": "^2.25.2",
-    "eslint-plugin-n": "^15.0.0 || ^16.0.0 ",
+    "eslint-plugin-n": "^16.0.0",
     "eslint-plugin-promise": "^6.0.0",
     "prettier": "^3.2.5",
     "typescript": "*"
@@ -29,7 +29,7 @@
   "dependencies": {
     "@aws-sdk/client-ssm": "^3.535.0",
     "@aws-sdk/credential-provider-node": "^3.535.0",
-    "@coral-xyz/anchor": "^0.29.0",
+    "@coral-xyz/anchor": "0.29.0",
     "@drift-labs/sdk": "file:./drift-common/protocol/sdk",
     "@drift/common": "file:./drift-common/common-ts",
     "@grpc/grpc-js": "^1.8.0",
